@@ -345,23 +345,46 @@ async function streamToArrayBuffer(stream: ReadableStream, streamSize: number) {
 	return result;
 }
 
-async function receiveEmail(event: { raw: ReadableStream; rawSize: number }, env: Env, ctx: ExecutionContext) {
+async function receiveEmail(event: ForwardableEmailMessage, env: Env, ctx: ExecutionContext) {
 	const rawEmail = await streamToArrayBuffer(event.raw, event.rawSize);
 	const parsedEmail = await new PostalMime().parse(rawEmail);
 
-	if (!parsedEmail.to?.length || !parsedEmail.to[0].address) throw new Error("received email with empty to");
-
-	const allowedAddresses = ((env.EMAIL_ADDRESSES ?? []) as string[]).map((a) => a.toLowerCase());
-	const allRecipients = parsedEmail.to.map((t) => t.address?.toLowerCase()).filter(Boolean) as string[];
+	// MIME recipients are used for attribution only — never for routing.
+	const toRecipients = (parsedEmail.to || []).map((t) => t.address?.toLowerCase()).filter(Boolean) as string[];
 	const ccRecipients = (parsedEmail.cc || []).map((e) => e.address?.toLowerCase()).filter(Boolean) as string[];
 	const bccRecipients = (parsedEmail.bcc || []).map((e) => e.address?.toLowerCase()).filter(Boolean) as string[];
 
+	// Route on the SMTP envelope recipient (event.to), not the MIME To: header.
+	// The To: header names whoever the message was *addressed* to, which on BCC,
+	// mailing-list and forwarded mail is the list or the original sender rather
+	// than the mailbox actually delivered to. Routing on it made us throw away
+	// those messages because no mailbox matched.
+	const envelopeRecipient = (event.to ?? "").trim().toLowerCase();
+
+	const allowedAddresses = ((env.EMAIL_ADDRESSES ?? []) as string[]).map((a) => a.toLowerCase());
+
 	let mailboxId: string | undefined;
-	if (allowedAddresses.length > 0) {
-		mailboxId = allRecipients.find((addr) => allowedAddresses.includes(addr));
-		if (!mailboxId) { console.log(`Ignoring email: no recipient matches EMAIL_ADDRESSES.`); return; }
-	} else { mailboxId = allRecipients[0]; }
+	if (envelopeRecipient) {
+		mailboxId = envelopeRecipient;
+		if (allowedAddresses.length > 0 && !allowedAddresses.includes(mailboxId)) {
+			console.log(`Ignoring email: envelope recipient ${mailboxId} is not in EMAIL_ADDRESSES.`);
+			return;
+		}
+	} else {
+		// Should not happen on Cloudflare Email Routing, but fall back to the
+		// MIME headers rather than dropping the message entirely.
+		console.warn("Inbound email had no SMTP envelope recipient; falling back to MIME To: header.");
+		const allRecipients = [...toRecipients, ...ccRecipients, ...bccRecipients];
+		if (allowedAddresses.length > 0) {
+			mailboxId = allRecipients.find((addr) => allowedAddresses.includes(addr));
+			if (!mailboxId) { console.log(`Ignoring email: no recipient matches EMAIL_ADDRESSES.`); return; }
+		} else { mailboxId = allRecipients[0]; }
+	}
 	if (!mailboxId) throw new Error("received email with no valid recipient address");
+
+	// Attribution: the envelope recipient first, then any MIME To: recipients,
+	// so a BCC shows up addressed to the mailbox it was actually delivered to.
+	const allRecipients = Array.from(new Set([envelopeRecipient, ...toRecipients].filter(Boolean)));
 
 	const messageId = crypto.randomUUID();
 	if (!(await env.BUCKET.head(`mailboxes/${mailboxId}.json`))) { console.log(`Ignoring email for ${mailboxId}: mailbox does not exist`); return; }
