@@ -8,6 +8,7 @@ import { jwtVerify, createRemoteJWKSet } from "jose";
 import { createRequestHandler } from "react-router";
 import { app as apiApp, receiveEmail } from "./index";
 import { EmailMCP } from "./mcp";
+import { isValidApiKeyHeader } from "./lib/api-key";
 import type { Env } from "./types";
 
 export { MailboxDO } from "./durableObject";
@@ -49,12 +50,18 @@ app.use("*", async (c, next) => {
 		return next();
 	}
 
+	// API key bypass for non-browser clients. Checked before Access config so it
+	// works even when POLICY_AUD/TEAM_DOMAIN are unset.
+	if (isValidApiKeyHeader(c.req.header("authorization"), c.env.API_KEY)) {
+		return next();
+	}
+
 	const { POLICY_AUD, TEAM_DOMAIN } = c.env;
 
-	// Fail closed in production if Access is not configured.
+	// Fail closed in production if Access is not configured and no API key matched.
 	if (!POLICY_AUD || !TEAM_DOMAIN) {
 		return c.text(
-			"Cloudflare Access must be configured in production. Set POLICY_AUD and TEAM_DOMAIN.",
+			"Cloudflare Access must be configured in production. Set POLICY_AUD and TEAM_DOMAIN, or set API_KEY for programmatic access.",
 			500,
 		);
 	}
@@ -111,7 +118,7 @@ app.all("*", (c) => {
 export default {
 	fetch: app.fetch,
 	async email(
-		event: { raw: ReadableStream; rawSize: number },
+		event: ForwardableEmailMessage,
 		env: Env,
 		ctx: ExecutionContext,
 	) {

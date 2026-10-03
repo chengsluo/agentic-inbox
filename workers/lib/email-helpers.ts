@@ -44,6 +44,91 @@ export async function listMailboxes(
 	});
 }
 
+// ── Mailbox Sender Identity ────────────────────────────────────────
+
+/**
+ * Resolve the display name configured for a mailbox (`settings.fromName`).
+ *
+ * Returns null when the mailbox has no settings object, no name, or a name that
+ * is just the address again. Never throws — callers fall back to the bare
+ * address, which is always valid.
+ */
+export async function getMailboxFromName(
+	env: Env,
+	mailboxId: string,
+): Promise<string | null> {
+	const email = mailboxId.toLowerCase();
+	try {
+		const obj = await env.BUCKET.get(`mailboxes/${email}.json`);
+		if (!obj) return null;
+		const settings = (await obj.json()) as { fromName?: unknown };
+		const name =
+			typeof settings.fromName === "string" ? settings.fromName.trim() : "";
+		if (!name || name === email) return null;
+		return name;
+	} catch {
+		// Malformed settings JSON shouldn't stop us from sending mail.
+		return null;
+	}
+}
+
+/**
+ * Build the `from` field for an outgoing email, preserving the mailbox's
+ * configured display name so agent/MCP sends are attributed the same way as
+ * sends composed in the UI. Falls back to the bare address.
+ */
+export async function resolveFromIdentity(
+	env: Env,
+	mailboxId: string,
+): Promise<string | { email: string; name: string }> {
+	const email = mailboxId.toLowerCase();
+	const name = await getMailboxFromName(env, email);
+	return name ? { email, name } : email;
+}
+
+/**
+ * Render a `from` identity as an RFC 5322 mailbox string for raw headers.
+ */
+export function formatFromHeader(
+	from: string | { email: string; name: string },
+): string {
+	return typeof from === "string" ? from : `${from.name} <${from.email}>`;
+}
+
+/**
+ * Raw headers for a stored outbound email/draft that we generated ourselves.
+ * Keeps the sender display name attached to the record so later reads (and any
+ * UI that replays these headers) show the real From: line.
+ */
+export function buildOutboundRawHeaders(options: {
+	from: string | { email: string; name: string };
+	to: string | string[];
+	subject: string;
+	date: string;
+	messageId?: string;
+	inReplyTo?: string;
+	references?: string[];
+}): string {
+	return JSON.stringify([
+		{ key: "from", value: formatFromHeader(options.from) },
+		{
+			key: "to",
+			value: Array.isArray(options.to) ? options.to.join(", ") : options.to,
+		},
+		{ key: "subject", value: options.subject },
+		{ key: "date", value: options.date },
+		...(options.messageId
+			? [{ key: "message-id", value: `<${options.messageId}>` }]
+			: []),
+		...(options.inReplyTo
+			? [{ key: "in-reply-to", value: `<${options.inReplyTo}>` }]
+			: []),
+		...(options.references?.length
+			? [{ key: "references", value: options.references.map((r) => `<${r}>`).join(" ") }]
+			: []),
+	]);
+}
+
 // ── Sender Validation ──────────────────────────────────────────────
 
 /**

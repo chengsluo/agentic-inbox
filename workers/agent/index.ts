@@ -17,6 +17,8 @@ import {
 	getMailboxStub,
 	stripHtmlToText,
 	textToHtml,
+	buildOutboundRawHeaders,
+	resolveFromIdentity,
 } from "../lib/email-helpers";
 import {
 	toolListEmails,
@@ -487,6 +489,10 @@ Based on the email content and thread context above, draft a reply using draft_r
 					const reSubject = emailData.subject.startsWith("Re:")
 						? emailData.subject
 						: `Re: ${emailData.subject}`;
+					const now = new Date().toISOString();
+					// Keep the mailbox display name so the draft is attributed to
+					// "Name <mailbox@domain>" and not the bare address.
+					const from = await resolveFromIdentity(env, emailData.mailboxId);
 					await draftStub.createEmail(
 						Folders.DRAFT,
 						{
@@ -494,15 +500,22 @@ Based on the email content and thread context above, draft a reply using draft_r
 							subject: reSubject,
 							sender: emailData.mailboxId.toLowerCase(),
 							recipient: emailData.sender.toLowerCase(),
-							date: new Date().toISOString(),
-						// verifyDraft may return plain text or HTML depending on its
-						// code path. Only wrap in textToHtml if it's plain text.
-						body: /<[a-z][\s\S]*>/i.test(sanitizedText)
-							? sanitizedText
-							: textToHtml(sanitizedText),
-						in_reply_to: emailData.emailId,
+							date: now,
+							// verifyDraft may return plain text or HTML depending on its
+							// code path. Only wrap in textToHtml if it's plain text.
+							body: /<[a-z][\s\S]*>/i.test(sanitizedText)
+								? sanitizedText
+								: textToHtml(sanitizedText),
+							in_reply_to: emailData.emailId,
 							email_references: null,
 							thread_id: emailData.threadId,
+							raw_headers: buildOutboundRawHeaders({
+								from,
+								to: emailData.sender,
+								subject: reSubject,
+								date: now,
+								inReplyTo: emailData.emailId,
+							}),
 						},
 						[],
 					);
