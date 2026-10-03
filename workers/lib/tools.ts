@@ -20,6 +20,8 @@ import {
 	getFullEmail,
 	getFullThread,
 	buildQuotedReplyBlock,
+	buildOutboundRawHeaders,
+	resolveFromIdentity,
 	textToHtml,
 	listMailboxes,
 	generateMessageId,
@@ -164,6 +166,9 @@ export async function toolDraftReply(
 		: "";
 	const bodyHtml = processedBody + quotedBlock;
 
+	const now = new Date().toISOString();
+	const from = await resolveFromIdentity(env, mailboxId);
+
 	await stub.createEmail(
 		Folders.DRAFT,
 		{
@@ -171,11 +176,18 @@ export async function toolDraftReply(
 			subject: params.subject,
 			sender: mailboxId.toLowerCase(),
 			recipient: params.to.toLowerCase(),
-			date: new Date().toISOString(),
+			date: now,
 			body: bodyHtml,
 			in_reply_to: params.originalEmailId,
 			email_references: null,
 			thread_id: threadId,
+			raw_headers: buildOutboundRawHeaders({
+				from,
+				to: params.to,
+				subject: params.subject,
+				date: now,
+				inReplyTo: params.originalEmailId,
+			}),
 		},
 		[],
 	);
@@ -240,6 +252,9 @@ export async function toolDraftEmail(
 		resolvedThreadId = draftId;
 	}
 
+	const now = new Date().toISOString();
+	const from = await resolveFromIdentity(env, mailboxId);
+
 	await stub.createEmail(
 		Folders.DRAFT,
 		{
@@ -247,11 +262,20 @@ export async function toolDraftEmail(
 			subject: params.subject,
 			sender: mailboxId.toLowerCase(),
 			recipient: (params.to || "").toLowerCase(),
-			date: new Date().toISOString(),
+			date: now,
 			body: processedBody,
 			in_reply_to: params.in_reply_to || null,
 			email_references: null,
 			thread_id: resolvedThreadId,
+			raw_headers: buildOutboundRawHeaders({
+				from,
+				to: params.to,
+				subject: params.subject,
+				date: now,
+				...(params.in_reply_to
+					? { inReplyTo: params.in_reply_to }
+					: {}),
+			}),
 		},
 		[],
 	);
@@ -301,18 +325,31 @@ export async function toolUpdateDraft(
 	}
 
 	await stub.deleteEmail(params.draftId);
+	const now = new Date().toISOString();
+	const from = await resolveFromIdentity(env, mailboxId);
+	const draftTo = params.to ?? oldDraft.recipient;
+
 	await stub.createEmail(
 		Folders.DRAFT,
 		{
 			id: newDraftId,
 			subject: params.subject ?? oldDraft.subject,
 			sender: mailboxId.toLowerCase(),
-			recipient: (params.to ?? oldDraft.recipient).toLowerCase(),
-			date: new Date().toISOString(),
+			recipient: draftTo.toLowerCase(),
+			date: now,
 			body: verifiedBody,
 			in_reply_to: oldDraft.in_reply_to || null,
 			email_references: oldDraft.email_references || null,
 			thread_id: oldDraft.thread_id || newDraftId,
+			raw_headers: buildOutboundRawHeaders({
+				from,
+				to: draftTo,
+				subject: params.subject ?? oldDraft.subject,
+				date: now,
+				...(oldDraft.in_reply_to
+					? { inReplyTo: oldDraft.in_reply_to }
+					: {}),
+			}),
 		},
 		[],
 	);
@@ -433,10 +470,15 @@ export async function toolSendReply(
 	});
 	const fullBodyHtml = sanitizedBody + quotedBlock;
 
+	// Preserve the mailbox's configured display name on agent/MCP sends, which
+	// previously went out as a bare address even when the UI showed a name.
+	const from = await resolveFromIdentity(env, mailboxId);
+	const now = new Date().toISOString();
+
 	try {
 		await sendEmail(env.EMAIL, {
 			to: params.to,
-			from: mailboxId,
+			from,
 			subject: params.subject,
 			html: fullBodyHtml,
 			headers: buildThreadingHeaders(originalMsgId, references),
@@ -453,13 +495,22 @@ export async function toolSendReply(
 			subject: params.subject,
 			sender: mailboxId.toLowerCase(),
 			recipient: params.to.toLowerCase(),
-			date: new Date().toISOString(),
+			date: now,
 			body: fullBodyHtml,
 			in_reply_to: originalMsgId,
 			email_references:
 				references.length > 0 ? JSON.stringify(references) : null,
 			thread_id: threadId,
 			message_id: outgoingMessageId,
+			raw_headers: buildOutboundRawHeaders({
+				from,
+				to: params.to,
+				subject: params.subject,
+				date: now,
+				messageId: outgoingMessageId,
+				inReplyTo: originalMsgId,
+				references,
+			}),
 		},
 		[],
 	);
@@ -498,10 +549,14 @@ export async function toolSendEmail(
 		return { error: "Draft verification failed — refusing to send unverified content. Please try again." };
 	}
 
+	// Preserve the mailbox's configured display name on agent/MCP sends.
+	const from = await resolveFromIdentity(env, mailboxId);
+	const now = new Date().toISOString();
+
 	try {
 		await sendEmail(env.EMAIL, {
 			to: params.to,
-			from: mailboxId,
+			from,
 			subject: params.subject,
 			html: sanitizedBody,
 		});
@@ -517,12 +572,19 @@ export async function toolSendEmail(
 			subject: params.subject,
 			sender: mailboxId.toLowerCase(),
 			recipient: params.to.toLowerCase(),
-			date: new Date().toISOString(),
+			date: now,
 			body: sanitizedBody,
 			in_reply_to: null,
 			email_references: null,
 			thread_id: messageId,
 			message_id: outgoingMessageId,
+			raw_headers: buildOutboundRawHeaders({
+				from,
+				to: params.to,
+				subject: params.subject,
+				date: now,
+				messageId: outgoingMessageId,
+			}),
 		},
 		[],
 	);

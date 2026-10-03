@@ -14,6 +14,8 @@ import {
 	SenderValidationError,
 	generateMessageId,
 	buildThreadingHeaders,
+	buildOutboundRawHeaders,
+	resolveFromIdentity,
 	listMailboxes,
 } from "./lib/email-helpers";
 import { SendEmailRequestSchema } from "./lib/schemas";
@@ -219,11 +221,18 @@ app.post("/api/v1/mailboxes/:mailboxId/drafts", async (c: AppContext) => {
 	if (draft_id) await stub.deleteEmail(draft_id); // not atomic — create-then-delete would be safer
 	const messageId = crypto.randomUUID();
 	const now = new Date().toISOString();
+	// Preserve the mailbox display name on drafts saved via the API, matching
+	// what the compose UI puts in the From: line.
+	const from = await resolveFromIdentity(c.env, mailboxId);
 	await stub.createEmail(Folders.DRAFT, {
 		id: messageId, subject: subject || "", sender: mailboxId.toLowerCase(),
 		recipient: (to || "").toLowerCase(), cc: cc?.toLowerCase() || null, bcc: bcc?.toLowerCase() || null,
 		date: now, body, in_reply_to: in_reply_to || null, email_references: null,
 		thread_id: thread_id || in_reply_to || messageId,
+		raw_headers: buildOutboundRawHeaders({
+			from, to: to || "", subject: subject || "", date: now,
+			...(in_reply_to ? { inReplyTo: in_reply_to } : {}),
+		}),
 	}, []);
 	return c.json({ id: messageId, status: "draft", subject: subject || "", recipient: to || "", date: now }, 201);
 });
