@@ -10,7 +10,17 @@
  */
 import DOMPurify from "dompurify";
 import { formatQuotedDate } from "shared/dates";
+import {
+	decodeHtmlEntities,
+	escapeHtml,
+	htmlToPlainText as htmlToPlainTextString,
+	stripDangerousElements,
+	stripHtmlTags,
+} from "shared/html";
 import type { Attachment } from "~/types";
+
+// `escapeHtml` moved to shared/html; re-exported so existing imports keep working.
+export { escapeHtml };
 
 export {
 	formatListDate,
@@ -51,48 +61,66 @@ export function toEmailListValue(addresses: string[]): string | string[] | undef
 	return addresses.length === 1 ? addresses[0] : addresses;
 }
 
+/** Tags whose boundaries become newlines when flattening to plain text. */
+const BLOCK_TAGS = new Set([
+	"P", "LI", "TR", "H1", "H2", "H3", "H4", "H5", "H6", "BLOCKQUOTE", "PRE",
+]);
+
 /**
  * Convert HTML content to plain text.
  * Uses DOM APIs so must only be called client-side.
  */
 export function htmlToPlainText(html: string): string {
-	// Sanitize with DOMPurify before DOM parsing to prevent XSS during innerHTML assignment.
-	// DOMPurify strips all dangerous content (scripts, event handlers, etc.)
-	// while preserving structural HTML for text extraction.
-	const sanitized = DOMPurify.sanitize(html);
+	// DOMPurify is the security boundary here: it strips scripts, event
+	// handlers and other executable content.
+	//
+	// The sanitised output is assigned to innerHTML *directly*. Nothing —
+	// especially no tag-shaped regex — may run in between, because a filter
+	// that only partially understands tags is exactly what CodeQL reports as
+	// js/incomplete-multi-character-sanitization. DOMPurify also removes
+	// <script> and <style> elements wholesale, so their content never reaches
+	// textContent.
 	const div = document.createElement("div");
-	div.innerHTML = sanitized
-		.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
-		.replace(/<br\s*\/?>/gi, "\n")
-		.replace(/<\/p>/gi, "\n\n")
-		.replace(/<p[^>]*>/gi, "")
-		.replace(/<div[^>]*>/gi, "")
-		.replace(/<\/div>/gi, "\n");
-	return (div.textContent || div.innerText || "").trim();
+	div.innerHTML = DOMPurify.sanitize(html);
+
+	// Block boundaries are turned into newlines via the DOM rather than regex,
+	// which keeps the extracted text readable for the `text:` alternative part.
+	for (const node of Array.from(
+		div.querySelectorAll("br, p, li, tr, h1, h2, h3, h4, h5, h6, blockquote, pre, div"),
+	)) {
+		const isBreak = node.tagName === "BR";
+		const isBlock = BLOCK_TAGS.has(node.tagName);
+		const isDiv = node.tagName === "DIV";
+
+		if (isBreak) {
+			node.parentNode?.replaceChild(document.createTextNode("\n"), node);
+			continue;
+		}
+		if (isBlock) {
+			node.parentNode?.insertBefore(document.createTextNode("\n\n"), node);
+		}
+		if (isBlock || isDiv) {
+			node.parentNode?.insertBefore(document.createTextNode("\n"), node.nextSibling);
+		}
+	}
+
+	const text = div.textContent || div.innerText || "";
+	return text
+		.replace(/[^\S\n]+/g, " ")
+		.replace(/ *\n */g, "\n")
+		.replace(/\n{3,}/g, "\n\n")
+		.trim();
 }
 
 /**
  * Strip all HTML tags from a string.
+ *
+ * Delegates to the hardened shared implementation rather than a bare
+ * `<[^>]*>` replace, which could be defeated by an unterminated tag and
+ * reported by CodeQL as `js/incomplete-multi-character-sanitization`.
  */
 export function stripHtml(html: string): string {
-	return html.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
-}
-
-function decodeHtmlEntities(text: string): string {
-	return text
-		.replace(/&#(\d+);/g, (_match: string, code: string) =>
-			String.fromCharCode(Number(code)),
-		)
-		.replace(/&#x([0-9a-f]+);/gi, (_match: string, hex: string) =>
-			String.fromCharCode(Number.parseInt(hex, 16)),
-		)
-		.replace(/&amp;/g, "&")
-		.replace(/&lt;/g, "<")
-		.replace(/&gt;/g, ">")
-		.replace(/&quot;/g, '"')
-		.replace(/&#39;/g, "'")
-		.replace(/&apos;/g, "'")
-		.replace(/&nbsp;/g, " ");
+	return htmlToPlainTextString(html).replace(/\n+/g, " ").trim();
 }
 
 export function getSnippetText(
@@ -101,32 +129,18 @@ export function getSnippetText(
 ): string {
 	if (!snippet) return "";
 
-	const clean = decodeHtmlEntities(
-		snippet
-			.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
-			.replace(/<style[^>]*>[\s\S]*/gi, "")
-			.replace(/<[^>]*>/g, " ")
-			.replace(/<[^>]*$/g, ""),
-	)
-		.replace(/\s+/g, " ")
+	// One hardened pass for the tags, then a single-pass entity decode.
+	// decodeHtmlEntities must never run twice over its own output, or
+	// "&amp;lt;script&amp;gt;" would collapse into "<script>".
+	const clean = decodeHtmlEntities(stripDangerousElements(snippet))
+		.replace(/[^\S\n]+/g, " ")
+		.replace(/\n+/g, " ")
 		.trim();
 
-	if (!clean) return "";
-	return clean.length > maxLength ? `${clean.slice(0, maxLength)}...` : clean;
-}
+	const plain = stripHtmlTags(clean, " ").replace(/\s+/g, " ").trim();
 
-/**
- * Escape all five OWASP-recommended HTML special characters in plain text.
- * Safe for use in both text content and attribute contexts.
- */
-export function escapeHtml(text: string): string {
-	if (!text) return "";
-	return text
-		.replace(/&/g, "&amp;")
-		.replace(/</g, "&lt;")
-		.replace(/>/g, "&gt;")
-		.replace(/"/g, "&quot;")
-		.replace(/'/g, "&#39;");
+	if (!plain) return "";
+	return plain.length > maxLength ? `${plain.slice(0, maxLength)}...` : plain;
 }
 
 /**
