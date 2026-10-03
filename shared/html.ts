@@ -96,9 +96,11 @@ const MARKUP_DECL_RE = /<![^>]*>|<\?[\s\S]*?\?>|<%[\s\S]*?%>/g;
  * Any remaining tag, including truncated ones at the end of input.
  *
  * `[a-zA-Z/!?]` keeps a bare `<` that is not actually introducing a tag, so
- * "5 < 6" survives intact.
+ * "5 < 6" and "I <3 this" survive intact. The truncated-tail alternative
+ * therefore requires the `/`, `!` or `?` prefix: a truncated `<tag` is already
+ * covered by the first alternative's optional `>`.
  */
-const ANY_TAG_RE = /<[/!?]?[a-zA-Z][^>]*>?|<[/!?]?[^>]*$/g;
+const ANY_TAG_RE = /<[/!?]?[a-zA-Z][^>]*>?|<[/!?][^>]*$/g;
 
 /** Named entities we decode. Anything else is left untouched. */
 const NAMED_ENTITIES: Readonly<Record<string, string>> = {
@@ -256,11 +258,14 @@ export function stripDangerousElements(html: string): string {
  * Runs after {@link stripDangerousElements} and is deliberately total: it also
  * drops a trailing unterminated `<…` so a truncated document cannot leak a
  * dangling opener.
+ *
+ * `replacement` is what each tag becomes. Single-line snippets pass `" "` so
+ * `a<br>b` or `<td>1</td><td>2</td>` keep their word boundaries.
  */
-export function stripHtmlTags(html: string): string {
+export function stripHtmlTags(html: string, replacement = ""): string {
 	if (!html) return "";
 	let out = stripDangerousElements(html);
-	out = out.replace(ANY_TAG_RE, "");
+	out = out.replace(ANY_TAG_RE, replacement);
 	// Defence in depth: if a second pass still finds something that reads like a
 	// tag opener, cut from that `<` to the end. `replace` with `g` keeps working
 	// through the string without looping.
@@ -295,7 +300,7 @@ export function htmlToPlainText(html: string): string {
  */
 export function stripHtmlToText(html: string): string {
 	if (!html) return "";
-	return stripHtmlTags(html)
+	return stripHtmlTags(html, " ")
 		.replace(/\s+/g, " ")
 		.trim();
 }

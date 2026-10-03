@@ -137,7 +137,7 @@ export function getSnippetText(
 		.replace(/\n+/g, " ")
 		.trim();
 
-	const plain = stripHtmlTags(clean).replace(/\s+/g, " ").trim();
+	const plain = stripHtmlTags(clean, " ").replace(/\s+/g, " ").trim();
 
 	if (!plain) return "";
 	return plain.length > maxLength ? `${plain.slice(0, maxLength)}...` : plain;

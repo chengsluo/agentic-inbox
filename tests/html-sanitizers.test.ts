@@ -97,6 +97,26 @@ describe("stripHtmlToText: unterminated and nested", () => {
 	test("keeps a bare less-than that is not a tag", () => {
 		assert.equal(stripHtmlToText("5 < 6 and 7 > 6"), "5 < 6 and 7 > 6");
 	});
+
+	test("keeps a bare less-than with no later greater-than", () => {
+		assert.equal(stripHtmlToText("I <3 this"), "I <3 this");
+		assert.equal(stripHtmlToText("x < 10"), "x < 10");
+	});
+
+	test("still drops a truncated closer or declaration at end of input", () => {
+		assert.equal(stripHtmlToText("hello </div"), "hello");
+		assert.equal(stripHtmlToText("hello <!DOCTYPE html"), "hello");
+	});
+});
+
+describe("stripHtmlToText: word boundaries", () => {
+	test("tags separate words instead of fusing them", () => {
+		assert.equal(
+			stripHtmlToText("Dear Bob,<br><br>Thanks.<p>Regards,</p>Alice"),
+			"Dear Bob, Thanks. Regards, Alice",
+		);
+		assert.equal(stripHtmlToText("<td>100</td><td>200</td>"), "100 200");
+	});
 });
 
 // ── js/double-escaping: single-pass entity decoding ─────────────────
