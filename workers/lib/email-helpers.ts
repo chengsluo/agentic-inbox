@@ -13,6 +13,12 @@ import type { EmailFull } from "./schemas";
 import { Folders } from "../../shared/folders";
 import type { Env } from "../types";
 import { formatQuotedDate } from "../../shared/dates";
+import { escapeHtml, stripHtmlToText } from "../../shared/html";
+
+// `escapeHtml` and `stripHtmlToText` now live in shared/html so the browser and
+// the Worker use one hardened implementation. Re-exported here because
+// existing modules (and ai.ts) import them from this file.
+export { escapeHtml, stripHtmlToText };
 
 // ── DO Stub ────────────────────────────────────────────────────────
 
@@ -235,20 +241,6 @@ export async function resolveOriginalEmail(
 // ── HTML Utilities ─────────────────────────────────────────────────
 
 /**
- * Escape all five OWASP-recommended HTML special characters in plain text.
- * Safe for use in both text content and attribute contexts.
- */
-export function escapeHtml(text: string): string {
-	if (!text) return "";
-	return text
-		.replace(/&/g, "&amp;")
-		.replace(/</g, "&lt;")
-		.replace(/>/g, "&gt;")
-		.replace(/"/g, "&quot;")
-		.replace(/'/g, "&#39;");
-}
-
-/**
  * Convert plain text to a simple HTML block with preserved whitespace.
  * Uses both `white-space:pre-wrap` (modern clients) and `<br>` tags
  * (clients that strip inline styles, e.g. Outlook) as a belt-and-suspenders approach.
@@ -257,21 +249,6 @@ export function textToHtml(text: string): string {
 	if (!text) return "";
 	const escaped = escapeHtml(text).replace(/\n/g, "<br>");
 	return `<div style="white-space:pre-wrap">${escaped}</div>`;
-}
-
-/**
- * Strip HTML tags and normalize whitespace to produce plain text.
- * Removes <style> and <script> blocks first to avoid injecting their
- * content into the output.
- */
-export function stripHtmlToText(html: string): string {
-	if (!html) return "";
-	return html
-		.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
-		.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
-		.replace(/<[^>]+>/g, " ")
-		.replace(/\s+/g, " ")
-		.trim();
 }
 
 /**
