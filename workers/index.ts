@@ -2,6 +2,7 @@
 // Licensed under the Apache 2.0 license found in the LICENSE file or at:
 //     https://opensource.org/licenses/Apache-2.0
 
+import { getAgentByName } from "agents";
 import { type Context, Hono } from "hono";
 import { cors } from "hono/cors";
 import PostalMime from "postal-mime";
@@ -425,11 +426,20 @@ async function receiveEmail(event: ForwardableEmailMessage, env: Env, ctx: Execu
 		thread_id: threadId, message_id: originalMessageId, raw_headers: JSON.stringify(parsedEmail.headers),
 	}, attachmentData);
 
-	const agentStub = env.EMAIL_AGENT.get(env.EMAIL_AGENT.idFromName(mailboxId));
-	ctx.waitUntil(agentStub.fetch(new Request("https://agents/onNewEmail", {
-		method: "POST", headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ mailboxId, emailId: messageId, sender: (parsedEmail.from?.address || "").toLowerCase(), subject: parsedEmail.subject || "", threadId }),
-	})).catch((e) => console.error("Auto-draft trigger failed:", (e as Error).message)));
+	// Resolve the agent through getAgentByName rather than ns.get(...): the
+	// Agents/partyserver runtime needs its `setName` handshake before it will
+	// serve a request, and fetching the raw stub directly threw a 500 for any
+	// mailbox that had not been opened in the UI yet (chat history is what
+	// normally performs that handshake). getAgentByName does it for us.
+	ctx.waitUntil(
+		(async () => {
+			const agentStub = await getAgentByName(env.EMAIL_AGENT, mailboxId);
+			return agentStub.fetch(new Request("https://agents/onNewEmail", {
+				method: "POST", headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ mailboxId, emailId: messageId, sender: (parsedEmail.from?.address || "").toLowerCase(), subject: parsedEmail.subject || "", threadId }),
+			}));
+		})().catch((e) => console.error("Auto-draft trigger failed:", (e as Error).message)),
+	);
 }
 
 export { app, receiveEmail };
