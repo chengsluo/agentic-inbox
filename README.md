@@ -28,12 +28,32 @@ https://github.com/cloudflare/agentic-inbox/issues/4#issuecomment-4269118513
 4. **Enable Email Service** -- The worker needs the `send_email` binding to send outbound emails. See [Email Service docs](https://developers.cloudflare.com/email-routing/email-workers/send-email-workers/)
 5. **Create a mailbox** -- Visit your deployed app and create a mailbox for any address on your domain (e.g. `hello@example.com`)
 
+### Programmatic access with an API key
+
+Cloudflare Access protects this app with an interactive browser login, which is unusable for webhooks, CI jobs, scripts and MCP servers. Set an optional `API_KEY` secret to let non-browser clients authenticate directly:
+
+```bash
+npx wrangler secret put API_KEY
+```
+
+Clients then send `Authorization: Bearer <API_KEY>` instead of going through the Access redirect:
+
+```bash
+curl -H "Authorization: Bearer $API_KEY" https://your-worker.workers.dev/api/v1/mailboxes
+```
+
+Notes:
+
+- The key is optional. When `API_KEY` is unset the app behaves exactly as before and Access JWT validation is the only way in.
+- The comparison is constant-time, so the key can't be recovered from response timing.
+- A valid key bypasses Access entirely, including for `/mcp` and `/agents/*`. Treat it as a full credential for the deployment and rotate it like any other secret.
+
 ### Troubleshooting Access
 
 1. If you see `Invalid or expired Access token`, that usually means `POLICY_AUD` or `TEAM_DOMAIN` secrets are incorrect.
    * Resolution: [turn Access off and back on for the Worker to get the Access modal again](https://developers.cloudflare.com/changelog/post/2025-10-03-one-click-access-for-workers/), then reset your Worker secrets to the latest `POLICY_AUD` and `TEAM_DOMAIN` values shown there.
 2. If you see `Cloudflare Access must be configured in production`, this application is intentionally enforcing Cloudflare Access so your inbox is not exposed to anyone on the internet.
-   * Resolution: enable Access using [one-click Cloudflare Access for Workers](https://developers.cloudflare.com/changelog/post/2025-10-03-one-click-access-for-workers/), then set the `POLICY_AUD` and `TEAM_DOMAIN` Worker secrets from the modal values.
+   * Resolution: enable Access using [one-click Cloudflare Access for Workers](https://developers.cloudflare.com/changelog/post/2025-10-03-one-click-access-for-workers/), then set the `POLICY_AUD` and `TEAM_DOMAIN` Worker secrets from the modal values. Alternatively, set an `API_KEY` secret and authenticate with `Authorization: Bearer <API_KEY>`.
 
 ## Features
 
@@ -48,7 +68,7 @@ https://github.com/cloudflare/agentic-inbox/issues/4#issuecomment-4269118513
 - **Frontend:** React 19, React Router v7, Tailwind CSS, Zustand, TipTap, `@cloudflare/kumo`
 - **Backend:** Hono, Cloudflare Workers, Durable Objects (SQLite), R2, Email Routing
 - **AI Agent:** Cloudflare Agents SDK (`AIChatAgent`), AI SDK v6, Workers AI (`@cf/moonshotai/kimi-k2.5`), `react-markdown` + `remark-gfm`
-- **Auth:** Cloudflare Access JWT validation (required outside local development)
+- **Auth:** Cloudflare Access JWT validation (required outside local development), with an optional `API_KEY` bearer token for programmatic clients
 
 ## Getting Started
 
