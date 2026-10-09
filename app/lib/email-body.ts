@@ -15,6 +15,23 @@ export function sanitizeEmailBody(body: string): string {
 	});
 }
 
+/** Remove styles that would change as an auto-sized iframe grows. */
+export function stripViewportHeightStyles(body: string): string {
+	const doc = new DOMParser().parseFromString(body, "text/html");
+	for (const element of doc.body.querySelectorAll<HTMLElement>("[style]")) {
+		for (const property of Array.from(element.style)) {
+			const value = element.style.getPropertyValue(property);
+			// Includes logical axes, min/max, and small/large/dynamic variants.
+			// Check every property (including custom properties): viewport units
+			// in padding, font sizes, or widths can also change the body height.
+			if (/[\d.](?:[sld]?v(?:h|i|b|min|max))\b/i.test(value)) {
+				element.style.removeProperty(property);
+			}
+		}
+	}
+	return doc.body.innerHTML;
+}
+
 function normalizeContentId(value: string): string {
 	try {
 		value = decodeURIComponent(value);

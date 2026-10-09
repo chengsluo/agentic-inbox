@@ -3,7 +3,7 @@
 //     https://opensource.org/licenses/Apache-2.0
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { renderInlineImages, sanitizeEmailBody } from "~/lib/email-body";
+import { renderInlineImages, sanitizeEmailBody, stripViewportHeightStyles } from "~/lib/email-body";
 import type { Attachment } from "~/types";
 
 interface EmailIframeProps {
@@ -86,6 +86,9 @@ export default function EmailIframe({ body, mailboxId, emailId, attachments, aut
 		// Use srcdoc so the iframe is truly sandboxed (no same-origin access).
 		// We can't use doc.write() because that requires allow-same-origin.
 		const renderBody = (cleanBody: string) => {
+			// Break the viewport-height -> body-height -> iframe-height feedback
+			// loop while retaining ResizeObserver updates for delayed images.
+			if (autoSize) cleanBody = stripViewportHeightStyles(cleanBody);
 			iframe.srcdoc = `<!DOCTYPE html>
 <html>
 <head>

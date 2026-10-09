@@ -17,6 +17,7 @@ let server: ViteDevServer;
 let renderInlineImages: any;
 let SingleMessageView: any;
 let ThreadMessage: any;
+let EmailIframe: any;
 
 before(async () => {
 	Object.assign(globalThis, {
@@ -40,6 +41,7 @@ before(async () => {
 	({ renderInlineImages } = await server.ssrLoadModule("/app/lib/email-body.ts"));
 	({ default: SingleMessageView } = await server.ssrLoadModule("/app/components/email-panel/SingleMessageView.tsx"));
 	({ default: ThreadMessage } = await server.ssrLoadModule("/app/components/email-panel/ThreadMessage.tsx"));
+	({ default: EmailIframe } = await server.ssrLoadModule("/app/components/EmailIframe.tsx"));
 });
 
 beforeEach(() => {
@@ -121,6 +123,45 @@ test("cancelling a message load prevents image insertion", async () => {
 	controller.abort();
 	assert.doesNotMatch(await render('<img src="cid:photo@example.com">', [image], controller.signal), /data:/);
 	assert.equal(calls[0].options.signal?.aborted, true);
+});
+
+test("auto-sized iframes remove viewport-height dependencies before and after inline images load", async () => {
+	const root = createRoot(document.getElementById("root")!);
+	let finish: (response: Response) => void;
+	globalThis.fetch = () => new Promise((resolve) => { finish = resolve; });
+	const body = `<div style="height:calc(100vh + 10px); color:red; padding:8px; width:80vw">Text</div>
+		<div style="--size:100dvh; min-height:calc(var(--size, 100svh) + 10px)">Variables</div>
+		<div style="font-size:10vmax; margin:1lvmin; width:50vb; padding:10vi !important">Logical units</div>
+		<img src="cid:photo@example.com" style="max-height:100lvh; width:200px">`;
+	const props = { body, mailboxId: "reader@example.com", emailId: "message-1", attachments: [image] };
+	const assertStableStyles = (html: string) => {
+		const doc = parse(html);
+		const [text, variables, logical] = Array.from(doc.body.querySelectorAll("div"));
+		assert.equal(text.style.height, "");
+		assert.equal(text.style.color, "red");
+		assert.equal(text.style.padding, "8px");
+		assert.equal(text.style.width, "80vw");
+		assert.equal(variables.style.getPropertyValue("--size"), "");
+		assert.equal(variables.style.minHeight, "");
+		assert.equal(logical.style.length, 0);
+		assert.equal(doc.images[0].style.maxHeight, "");
+		assert.equal(doc.images[0].style.width, "200px");
+	};
+	try {
+		await act(async () => root.render(createElement(EmailIframe, { ...props, autoSize: true })));
+		const iframe = document.querySelector("iframe")!;
+		assertStableStyles(iframe.srcdoc);
+		await act(async () => {
+			finish!({ ok: true, blob: async () => new dom.window.Blob(["image"], { type: "image/png" }) } as Response);
+			await new Promise((resolve) => setTimeout(resolve, 20));
+		});
+		assertStableStyles(iframe.srcdoc);
+		assert.match(parse(iframe.srcdoc).images[0].src, /^data:image\/png/);
+		await act(async () => root.render(createElement(EmailIframe, { body, autoSize: false })));
+		assert.match(parse(iframe.srcdoc).body.querySelector("div")!.style.height, /100vh/);
+	} finally {
+		await act(async () => root.unmount());
+	}
 });
 
 for (const name of ["single message", "expanded thread"]) {
