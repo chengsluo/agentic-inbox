@@ -2,11 +2,15 @@
 // Licensed under the Apache 2.0 license found in the LICENSE file or at:
 //     https://opensource.org/licenses/Apache-2.0
 
-import DOMPurify from "dompurify";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { renderInlineImages, sanitizeEmailBody, stripViewportHeightStyles } from "~/lib/email-body";
+import type { Attachment } from "~/types";
 
 interface EmailIframeProps {
 	body: string;
+	mailboxId?: string;
+	emailId?: string;
+	attachments?: Attachment[];
 	/** When true, iframe auto-sizes to content height instead of filling parent */
 	autoSize?: boolean;
 }
@@ -27,7 +31,7 @@ interface EmailIframeProps {
  * - A strict CSP meta tag blocks external resource loads inside the
  *   iframe as a defense-in-depth layer.
  */
-export default function EmailIframe({ body, autoSize }: EmailIframeProps) {
+export default function EmailIframe({ body, mailboxId, emailId, attachments, autoSize }: EmailIframeProps) {
 	const iframeRef = useRef<HTMLIFrameElement>(null);
 	const [height, setHeight] = useState(autoSize ? 100 : 0);
 
@@ -57,14 +61,7 @@ export default function EmailIframe({ body, autoSize }: EmailIframeProps) {
 
 	useEffect(() => {
 		const iframe = iframeRef.current;
-		if (!iframe || !body) return;
-
-		const cleanBody = DOMPurify.sanitize(body, {
-			USE_PROFILES: { html: true },
-			FORBID_TAGS: ["style"],
-			ADD_ATTR: ["target"],
-			FORCE_BODY: true,
-		});
+		if (!iframe) return;
 
 		const padding = autoSize ? "0" : "24px";
 
@@ -81,12 +78,18 @@ export default function EmailIframe({ body, autoSize }: EmailIframeProps) {
 				setTimeout(reportHeight, 50);
 				setTimeout(reportHeight, 150);
 				setTimeout(reportHeight, 400);
+				new ResizeObserver(reportHeight).observe(document.body);
+				document.addEventListener("load", reportHeight, true);
 			<\/script>`
 			: "";
 
 		// Use srcdoc so the iframe is truly sandboxed (no same-origin access).
 		// We can't use doc.write() because that requires allow-same-origin.
-		iframe.srcdoc = `<!DOCTYPE html>
+		const renderBody = (cleanBody: string) => {
+			// Break the viewport-height -> body-height -> iframe-height feedback
+			// loop while retaining ResizeObserver updates for delayed images.
+			if (autoSize) cleanBody = stripViewportHeightStyles(cleanBody);
+			iframe.srcdoc = `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
@@ -137,7 +140,17 @@ ul, ol { padding-left: 20px; margin: 4px 0; }
 </head>
 <body>${cleanBody}${heightScript}</body>
 </html>`;
-	}, [body, autoSize]);
+		};
+
+		// Render text immediately while attachment images load.
+		renderBody(sanitizeEmailBody(body));
+		if (!mailboxId || !emailId || !attachments?.length) return;
+		const controller = new AbortController();
+		void renderInlineImages(body, mailboxId, emailId, attachments, controller.signal).then((html) => {
+			if (!controller.signal.aborted) renderBody(html);
+		});
+		return () => controller.abort();
+	}, [body, autoSize, mailboxId, emailId, attachments]);
 
 	return (
 		<iframe
