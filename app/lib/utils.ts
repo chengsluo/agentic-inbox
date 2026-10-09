@@ -17,7 +17,6 @@ import {
 	stripDangerousElements,
 	stripHtmlTags,
 } from "shared/html";
-import type { Attachment } from "~/types";
 
 // `escapeHtml` moved to shared/html; re-exported so existing imports keep working.
 export { escapeHtml };
@@ -208,10 +207,6 @@ export function rewriteInlineImages(
 		}
 	}
 	return result;
-}
-
-export function getNonInlineAttachments(attachments?: Attachment[]): Attachment[] {
-	return attachments?.filter((attachment) => attachment.disposition !== "inline") ?? [];
 }
 
 export function getAttachmentUrl(
