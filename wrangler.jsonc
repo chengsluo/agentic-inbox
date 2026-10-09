@@ -48,6 +48,23 @@
 			}
 		]
 	},
+	// Worker Previews do not inherit production variables or resource bindings.
+	"previews": {
+		"vars": {
+			"DOMAINS": "example.com",
+			"EMAIL_ADDRESSES": []
+		},
+		"send_email": [{ "name": "EMAIL" }],
+		"r2_buckets": [{ "binding": "BUCKET", "bucket_name": "agentic-inbox-preview" }],
+		"ai": { "binding": "AI" },
+		"durable_objects": {
+			"bindings": [
+				{ "name": "MAILBOX", "class_name": "MailboxDO" },
+				{ "name": "EMAIL_AGENT", "class_name": "EmailAgent" },
+				{ "name": "EMAIL_MCP", "class_name": "EmailMCP" }
+			]
+		}
+	},
 	"migrations": [
 		{
 			"tag": "v1",

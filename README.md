@@ -88,6 +88,24 @@ npm run dev
 npm run deploy
 ```
 
+### Worker Previews
+
+Cloudflare Builds can deploy PR previews with `npx wrangler preview` after
+`npm run build`. The `previews` block in `wrangler.jsonc` explicitly configures
+their variables and bindings; production bindings are not inherited.
+
+Create the dedicated attachment bucket once per account:
+
+```bash
+npx wrangler r2 bucket create agentic-inbox-preview
+```
+
+Set the preview domain and email addresses in `previews.vars`. Each preview gets
+its own Durable Object namespaces, while previews share the preview attachment
+bucket. Configure `POLICY_AUD` and `TEAM_DOMAIN` for the preview's Cloudflare Access
+application using `npx wrangler preview base-config secret put <NAME>` before
+creating previews that need authenticated access.
+
 ## Prerequisites
 
 - Cloudflare account with a domain
