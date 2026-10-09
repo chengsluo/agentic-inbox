@@ -3,7 +3,7 @@
 //     https://opensource.org/licenses/Apache-2.0
 
 import { PaperclipIcon, FileIcon, ImageIcon } from "@phosphor-icons/react";
-import { formatBytes, getAttachmentUrl, getNonInlineAttachments } from "~/lib/utils";
+import { formatBytes, getAttachmentUrl } from "~/lib/utils";
 import type { Attachment } from "~/types";
 
 interface EmailAttachmentListProps {
@@ -25,7 +25,9 @@ export default function EmailAttachmentList({
 }: EmailAttachmentListProps) {
 	if (!mailboxId) return null;
 
-	const files = getNonInlineAttachments(attachments);
+	// iPhone Mail can mark screenshots inline without a Content-ID or body
+	// reference. Keep every attachment accessible even if the body cannot render it.
+	const files = attachments ?? [];
 	if (files.length === 0) return null;
 
 	return (
