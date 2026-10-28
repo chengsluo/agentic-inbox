@@ -64,3 +64,9 @@ export interface Folder {
 	name: string;
 	unreadCount: number;
 }
+
+export interface BlockedSender {
+	value: string;
+	kind: "address" | "domain";
+	created_at: string;
+}

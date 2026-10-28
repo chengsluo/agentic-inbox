@@ -6,6 +6,7 @@ import { Badge, Button, Input, Loader, useKumoToastManager } from "@cloudflare/k
 import { RobotIcon, ArrowCounterClockwiseIcon } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import { useParams } from "react-router";
+import BlockedSendersSettings from "~/components/BlockedSendersSettings";
 import { useMailbox, useUpdateMailbox } from "~/queries/mailboxes";
 
 // Placeholder shown in the textarea when no custom prompt is set.
@@ -132,6 +133,9 @@ export default function SettingsRoute() {
 						Save Changes
 					</Button>
 				</div>
+
+				{/* Blocked senders — saves on its own, separate from the button above */}
+				<BlockedSendersSettings mailboxId={mailboxId!} />
 			</div>
 		</div>
 	);

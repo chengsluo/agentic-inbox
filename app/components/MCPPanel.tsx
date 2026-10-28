@@ -56,6 +56,9 @@ const TOOLS = [
 	{ name: "send_email", desc: "Send a new email" },
 	{ name: "mark_email_read", desc: "Mark email as read/unread" },
 	{ name: "move_email", desc: "Move email to a folder" },
+	{ name: "list_blocked_senders", desc: "List blocked senders" },
+	{ name: "block_sender", desc: "Block an address or domain" },
+	{ name: "unblock_sender", desc: "Unblock an address or domain" },
 ];
 
 export default function MCPPanel() {

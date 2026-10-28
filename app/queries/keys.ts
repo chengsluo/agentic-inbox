@@ -19,6 +19,9 @@ export const queryKeys = {
 	folders: {
 		list: (mailboxId: string) => ["folders", mailboxId] as const,
 	},
+	blockedSenders: {
+		list: (mailboxId: string) => ["blocked-senders", mailboxId] as const,
+	},
 	search: {
 		results: (mailboxId: string, query: string, page: number) =>
 			["search", mailboxId, query, page] as const,

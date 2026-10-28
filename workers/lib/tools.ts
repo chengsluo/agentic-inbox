@@ -29,6 +29,12 @@ import {
 	buildThreadingHeaders,
 } from "./email-helpers";
 import { verifyDraft } from "./ai";
+import {
+	BlockEntryError,
+	matchesBlock,
+	normalizeBlockEntry,
+	type BlockEntry,
+} from "./blocked-senders";
 import { sendEmail } from "../email-sender";
 import { Folders } from "../../shared/folders";
 import type { Env } from "../types";
@@ -423,6 +429,72 @@ export async function toolDeleteEmail(
 		return { error: "Email not found", emailId };
 	}
 	return { status: "deleted", emailId };
+}
+
+// ── list_blocked_senders ───────────────────────────────────────────
+
+export async function toolListBlockedSenders(env: Env, mailboxId: string) {
+	const stub = getMailboxStub(env, mailboxId);
+	return stub.listBlockedSenders();
+}
+
+// ── block_sender ───────────────────────────────────────────────────
+
+/** R2 bulk delete accepts at most 1000 keys per call. */
+const R2_DELETE_BATCH = 1000;
+
+export async function toolBlockSender(
+	env: Env,
+	mailboxId: string,
+	rawValue: string,
+): Promise<
+	| { status: "blocked"; entry: BlockEntry; deletedCount: number }
+	| { error: string }
+> {
+	let entry: BlockEntry;
+	try {
+		entry = normalizeBlockEntry(rawValue);
+	} catch (e) {
+		if (e instanceof BlockEntryError) return { error: e.message };
+		throw e;
+	}
+
+	// Sent mail and drafts carry the mailbox's own address as sender, so a
+	// self-block would silently filter replies between our own mailboxes.
+	if (matchesBlock(mailboxId, [entry])) {
+		return { error: "You cannot block this mailbox's own address or domain" };
+	}
+
+	const stub = getMailboxStub(env, mailboxId);
+	const { deletedCount, attachments } = await stub.addBlockedSender(entry);
+
+	const keys = attachments.map((att) => `attachments/${att.email_id}/${att.id}/${att.filename}`);
+	for (let i = 0; i < keys.length; i += R2_DELETE_BATCH) {
+		await env.BUCKET.delete(keys.slice(i, i + R2_DELETE_BATCH));
+	}
+
+	return { status: "blocked", entry, deletedCount };
+}
+
+// ── unblock_sender ─────────────────────────────────────────────────
+
+export async function toolUnblockSender(
+	env: Env,
+	mailboxId: string,
+	rawValue: string,
+): Promise<{ status: "unblocked"; entry: BlockEntry } | { error: string }> {
+	let value: string;
+	try {
+		value = normalizeBlockEntry(rawValue).value;
+	} catch (e) {
+		if (e instanceof BlockEntryError) return { error: e.message };
+		throw e;
+	}
+
+	const stub = getMailboxStub(env, mailboxId);
+	const removed = await stub.removeBlockedSender(value);
+	if (!removed) return { error: `"${value}" is not blocked` };
+	return { status: "unblocked", entry: { value: removed.value, kind: removed.kind } };
 }
 
 // ── send_reply ─────────────────────────────────────────────────────

@@ -19,6 +19,9 @@ import {
 	toolSendEmail,
 	toolMarkEmailRead,
 	toolMoveEmail,
+	toolListBlockedSenders,
+	toolBlockSender,
+	toolUnblockSender,
 } from "../lib/tools";
 import { Folders, FOLDER_TOOL_DESCRIPTION, MOVE_FOLDER_TOOL_DESCRIPTION } from "../../shared/folders";
 import type { Env } from "../types";
@@ -427,6 +430,60 @@ export class EmailMCP extends McpAgent<Env> {
 					};
 				}
 				return mcpText(result);
+			},
+		);
+
+		// ── list_blocked_senders ───────────────────────────────────
+		this.server.tool(
+			"list_blocked_senders",
+			"List the email addresses and domains blocked for a mailbox.",
+			{
+				mailboxId: z.string().describe("The mailbox email address"),
+			},
+			async ({ mailboxId }) => {
+				const denied = await verifyMailbox(mailboxId);
+				if (denied) return denied;
+				const result = await toolListBlockedSenders(env, mailboxId);
+				return mcpText(result);
+			},
+		);
+
+		// ── block_sender ───────────────────────────────────────────
+		this.server.tool(
+			"block_sender",
+			"Block an email address or an entire domain for a mailbox. Blocking a domain also blocks its subdomains. " +
+				"WARNING: this immediately and permanently deletes every existing email from the blocked sender " +
+				"(sent mail and drafts are kept), and future emails from it are discarded on arrival. " +
+				"Only call after getting confirmation.",
+			{
+				mailboxId: z.string().describe("The mailbox email address"),
+				sender: z
+					.string()
+					.describe("Email address (e.g. spam@example.com) or domain (e.g. example.com or @example.com) to block"),
+			},
+			async ({ mailboxId, sender }) => {
+				const denied = await verifyMailbox(mailboxId);
+				if (denied) return denied;
+				const result = await toolBlockSender(env, mailboxId, sender);
+				return mcpResult(result);
+			},
+		);
+
+		// ── unblock_sender ─────────────────────────────────────────
+		this.server.tool(
+			"unblock_sender",
+			"Remove an address or domain from a mailbox's blocklist. Emails deleted when it was blocked are not restored.",
+			{
+				mailboxId: z.string().describe("The mailbox email address"),
+				sender: z
+					.string()
+					.describe("The blocked address or domain, exactly as listed by list_blocked_senders"),
+			},
+			async ({ mailboxId, sender }) => {
+				const denied = await verifyMailbox(mailboxId);
+				if (denied) return denied;
+				const result = await toolUnblockSender(env, mailboxId, sender);
+				return mcpResult(result);
 			},
 		);
 	}

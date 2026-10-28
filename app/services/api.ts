@@ -2,7 +2,7 @@
 // Licensed under the Apache 2.0 license found in the LICENSE file or at:
 //     https://opensource.org/licenses/Apache-2.0
 
-import type { Email, Folder, Mailbox } from "~/types";
+import type { BlockedSender, Email, Folder, Mailbox } from "~/types";
 
 const REQUEST_TIMEOUT_MS = 30_000;
 
@@ -156,6 +156,17 @@ const api = {
 		put<Folder>(`/api/v1/mailboxes/${mailboxId}/folders/${id}`, { name }),
 	deleteFolder: (mailboxId: string, id: string) =>
 		del<void>(`/api/v1/mailboxes/${mailboxId}/folders/${id}`),
+
+	// Blocked senders
+	listBlockedSenders: (mailboxId: string) =>
+		get<BlockedSender[]>(`/api/v1/mailboxes/${mailboxId}/blocked-senders`),
+	blockSender: (mailboxId: string, value: string) =>
+		post<{ status: "blocked"; entry: BlockedSender; deletedCount: number }>(
+			`/api/v1/mailboxes/${mailboxId}/blocked-senders`,
+			{ value },
+		),
+	unblockSender: (mailboxId: string, value: string) =>
+		del<void>(`/api/v1/mailboxes/${mailboxId}/blocked-senders?${new URLSearchParams({ value })}`),
 
 	// Search
 	searchEmails: (mailboxId: string, params: Record<string, string>) =>

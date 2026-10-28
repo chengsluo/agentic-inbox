@@ -10,6 +10,7 @@ import * as schema from "../db/schema";
 import { Folders } from "../../shared/folders";
 import type { Env } from "../types";
 import { toLikePattern } from "../lib/sql-patterns";
+import { matchesBlock, type BlockEntry } from "../lib/blocked-senders";
 import { applyMigrations, mailboxMigrations } from "./migrations";
 
 /**
@@ -780,6 +781,81 @@ export class MailboxDO extends DurableObject<Env> {
 			}
 
 			return String((row as any).thread_id);
+		}
+		return null;
+	}
+
+	// ── Blocked senders ────────────────────────────────────────────
+
+	async listBlockedSenders() {
+		return this.db
+			.select()
+			.from(schema.blockedSenders)
+			.orderBy(desc(schema.blockedSenders.created_at))
+			.all();
+	}
+
+	/**
+	 * Add a block entry and permanently delete existing mail it matches.
+	 * Sent mail and drafts are never purged. Returns the deleted emails'
+	 * attachment rows so the caller can remove the R2 blobs.
+	 */
+	async addBlockedSender(entry: BlockEntry) {
+		return this.ctx.storage.transactionSync(() => {
+			this.db
+				.insert(schema.blockedSenders)
+				.values({ value: entry.value, kind: entry.kind, created_at: new Date().toISOString() })
+				.onConflictDoNothing()
+				.run();
+
+			// Match in JS with the same rules used for inbound mail rather than
+			// with LIKE, whose `_`/`%` wildcards would over-match.
+			const candidates = [
+				...this.ctx.storage.sql.exec(
+					`SELECT id, sender FROM emails WHERE folder_id NOT IN (?1, ?2)`,
+					Folders.SENT,
+					Folders.DRAFT,
+				),
+			] as { id: string; sender: string | null }[];
+			const doomed = candidates.filter((e) => matchesBlock(e.sender, [entry]));
+
+			const attachments: { id: string; email_id: string; filename: string }[] = [];
+			for (const { id } of doomed) {
+				attachments.push(
+					...([
+						...this.ctx.storage.sql.exec(
+							`SELECT id, email_id, filename FROM attachments WHERE email_id = ?`,
+							id,
+						),
+					] as { id: string; email_id: string; filename: string }[]),
+				);
+				this.ctx.storage.sql.exec(`DELETE FROM attachments WHERE email_id = ?`, id);
+				this.ctx.storage.sql.exec(`DELETE FROM emails WHERE id = ?`, id);
+			}
+
+			return { deletedCount: doomed.length, attachments };
+		});
+	}
+
+	async removeBlockedSender(value: string) {
+		const removed = this.db
+			.delete(schema.blockedSenders)
+			.where(eq(schema.blockedSenders.value, value))
+			.returning()
+			.get();
+		return removed ?? null;
+	}
+
+	/** Return the entry blocking any of the given sender addresses, or null. */
+	async findBlockedSender(senders: (string | null | undefined)[]) {
+		const entries = this.db
+			.select({ value: schema.blockedSenders.value, kind: schema.blockedSenders.kind })
+			.from(schema.blockedSenders)
+			.all();
+		if (entries.length === 0) return null;
+		for (const sender of senders) {
+			const hit = matchesBlock(sender, entries);
+			if (hit) return hit;
 		}
 		return null;
 	}

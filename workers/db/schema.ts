@@ -42,3 +42,9 @@ export const attachments = sqliteTable("attachments", {
 	content_id: text("content_id"),
 	disposition: text("disposition"),
 });
+
+export const blockedSenders = sqliteTable("blocked_senders", {
+	value: text("value").primaryKey(),
+	kind: text("kind", { enum: ["address", "domain"] }).notNull(),
+	created_at: text("created_at").notNull(),
+});

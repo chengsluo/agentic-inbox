@@ -62,6 +62,17 @@ Notes:
 - **Built-in AI agent** — Side panel with 9 email tools for reading, searching, drafting, and sending
 - **Auto-draft on new email** — Agent automatically reads inbound emails and generates draft replies, always requiring explicit confirmation before sending
 - **Configurable and persistent** — Custom system prompts per mailbox, persistent chat history, streaming markdown responses, and tool call visibility
+- **Sender blocking** — Block an address or a whole domain (including its subdomains) from Settings or from the toolbar of any open email. Existing mail from the blocked sender is permanently deleted along with its attachments, and new mail is discarded on arrival (checked against both the `From:` header and the SMTP envelope sender) without notifying the sender. Sent mail and drafts are never touched, and a mailbox can't block its own address or domain. Unblocking does not restore deleted mail.
+
+### Blocking via API and MCP
+
+| | HTTP (`/api/v1/mailboxes/:mailboxId/…`) | MCP tool |
+|---|---|---|
+| List | `GET blocked-senders` | `list_blocked_senders` |
+| Block | `POST blocked-senders` `{ "value": "spam@example.com" \| "example.com" }` | `block_sender` |
+| Unblock | `DELETE blocked-senders?value=example.com` | `unblock_sender` |
+
+Blocking responds with `{ status, entry, deletedCount }`.
 
 ## Stack
 

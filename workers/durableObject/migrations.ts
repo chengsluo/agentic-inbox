@@ -168,4 +168,15 @@ export const mailboxMigrations: Migration[] = [
             CREATE INDEX IF NOT EXISTS idx_emails_folder_date ON emails(folder_id, date DESC);
         `,
 	},
+	{
+		// No txn() wrapper for the same reason as above; IF NOT EXISTS keeps it idempotent.
+		name: "9_add_blocked_senders",
+		sql: `
+            CREATE TABLE IF NOT EXISTS blocked_senders (
+                value TEXT PRIMARY KEY,
+                kind TEXT NOT NULL CHECK (kind IN ('address', 'domain')),
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+        `,
+	},
 ];

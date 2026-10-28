@@ -19,6 +19,7 @@ import {
 	listMailboxes,
 } from "./lib/email-helpers";
 import { SendEmailRequestSchema } from "./lib/schemas";
+import { toolBlockSender, toolListBlockedSenders, toolUnblockSender } from "./lib/tools";
 import { handleReplyEmail, handleForwardEmail } from "./routes/reply-forward";
 import { Folders } from "../shared/folders";
 import type { Env } from "./types";
@@ -43,6 +44,10 @@ const DraftBody = z.object({
 	in_reply_to: z.string().optional(),
 	thread_id: z.string().optional(),
 	draft_id: z.string().optional(),
+});
+
+const BlockSenderBody = z.object({
+	value: z.string().min(1).max(320),
 });
 
 // -- Helpers --------------------------------------------------------
@@ -304,6 +309,28 @@ app.delete("/api/v1/mailboxes/:mailboxId/folders/:id", async (c: AppContext) => 
 	return ok ? c.body(null, 204) : c.json({ error: "Folder not found or cannot be deleted" }, 400);
 });
 
+// -- Blocked senders ------------------------------------------------
+
+app.get("/api/v1/mailboxes/:mailboxId/blocked-senders", async (c: AppContext) => {
+	return c.json(await toolListBlockedSenders(c.env, c.req.param("mailboxId")!));
+});
+
+app.post("/api/v1/mailboxes/:mailboxId/blocked-senders", async (c: AppContext) => {
+	const body = BlockSenderBody.safeParse(await c.req.json().catch(() => null));
+	if (!body.success) return c.json({ error: "Enter an email address or domain to block" }, 400);
+	const result = await toolBlockSender(c.env, c.req.param("mailboxId")!, body.data.value);
+	return "error" in result ? c.json(result, 400) : c.json(result, 201);
+});
+
+// The entry is passed as a query param: addresses contain `@` and dots that
+// are awkward to round-trip through a path segment.
+app.delete("/api/v1/mailboxes/:mailboxId/blocked-senders", async (c: AppContext) => {
+	const value = c.req.query("value");
+	if (!value) return c.json({ error: "value is required" }, 400);
+	const result = await toolUnblockSender(c.env, c.req.param("mailboxId")!, value);
+	return "error" in result ? c.json(result, 404) : c.json(result);
+});
+
 // -- Search ---------------------------------------------------------
 
 app.get("/api/v1/mailboxes/:mailboxId/search", async (c: AppContext) => {
@@ -400,6 +427,16 @@ async function receiveEmail(event: ForwardableEmailMessage, env: Env, ctx: Execu
 	if (!(await env.BUCKET.head(`mailboxes/${mailboxId}.json`))) { console.log(`Ignoring email for ${mailboxId}: mailbox does not exist`); return; }
 
 	const stub = env.MAILBOX.get(env.MAILBOX.idFromName(mailboxId));
+
+	// Drop mail from blocked senders before anything is persisted: no R2
+	// attachment writes, no inbox row, no agent auto-draft. Check both the
+	// From: header (what the UI shows) and the SMTP envelope sender. Return
+	// quietly rather than rejecting so the sender isn't told they're blocked.
+	const blockedBy = await stub.findBlockedSender([parsedEmail.from?.address, event.from]);
+	if (blockedBy) {
+		console.log(`Dropping email for ${mailboxId}: sender blocked by ${blockedBy.kind} rule "${blockedBy.value}".`);
+		return;
+	}
 
 	const attachmentData: StoredAttachment[] = [];
 	if (parsedEmail.attachments) {

@@ -15,6 +15,7 @@ import {
 	FolderSimpleIcon,
 	PaperPlaneTiltIcon,
 	PencilSimpleIcon,
+	ProhibitIcon,
 	StarIcon,
 	TrashIcon,
 	XIcon,
@@ -39,6 +40,9 @@ interface EmailPanelToolbarProps {
 	onMove: (folderId: string) => void;
 	onViewSource: () => void;
 	onDelete: () => void;
+	/** Address to offer blocking for; omitted when there is no external sender. */
+	blockableSender?: string;
+	onBlock: (value: string) => void;
 }
 
 export default function EmailPanelToolbar({
@@ -58,6 +62,8 @@ export default function EmailPanelToolbar({
 	onMove,
 	onViewSource,
 	onDelete,
+	blockableSender,
+	onBlock,
 }: EmailPanelToolbarProps) {
 	return (
 		<div className="flex items-center gap-1 px-3 py-2 border-b border-kumo-line shrink-0 md:px-4">
@@ -158,6 +164,8 @@ export default function EmailPanelToolbar({
 
 			<MoveToFolderMenu folders={moveToFolders} onMove={onMove} />
 
+			{blockableSender && <BlockSenderMenu sender={blockableSender} onBlock={onBlock} />}
+
 			<div className="ml-auto flex items-center gap-0.5">
 				<Tooltip content="View source" side="bottom" asChild>
 					<Button
@@ -232,6 +240,57 @@ function MoveToFolderMenu({ folders, onMove }: { folders: Folder[]; onMove: (id:
 							onClick={() => { onMove(f.id); setOpen(false); }}
 						>
 							{f.name}
+						</button>
+					))}
+				</div>
+			)}
+		</div>
+	);
+}
+
+function BlockSenderMenu({ sender, onBlock }: { sender: string; onBlock: (value: string) => void }) {
+	const [open, setOpen] = useState(false);
+	const ref = useRef<HTMLDivElement>(null);
+	const domain = sender.includes("@") ? sender.slice(sender.lastIndexOf("@") + 1) : "";
+
+	useEffect(() => {
+		if (!open) return;
+		const handler = (e: MouseEvent) => {
+			if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+		};
+		document.addEventListener("mousedown", handler);
+		return () => document.removeEventListener("mousedown", handler);
+	}, [open]);
+
+	const options = [
+		{ label: `Block ${sender}`, value: sender },
+		...(domain ? [{ label: `Block all of @${domain}`, value: domain }] : []),
+	];
+
+	return (
+		<div ref={ref} className="relative">
+			<Tooltip content="Block sender" side="bottom" asChild>
+				<Button
+					variant="ghost"
+					shape="square"
+					size="sm"
+					icon={<ProhibitIcon size={18} />}
+					onClick={() => setOpen((o) => !o)}
+					aria-label="Block sender"
+				/>
+			</Tooltip>
+			{open && (
+				<div className="absolute top-full left-0 z-50 mt-1 min-w-[200px] max-w-[320px] rounded-lg border border-kumo-line bg-kumo-elevated shadow-lg py-1">
+					<div className="px-3 py-1.5 text-xs font-medium text-kumo-subtle">Block sender</div>
+					<div className="h-px bg-kumo-line my-1" />
+					{options.map((opt) => (
+						<button
+							key={opt.value}
+							type="button"
+							className="w-full truncate text-left px-3 py-1.5 text-sm text-kumo-default hover:bg-kumo-overlay transition-colors"
+							onClick={() => { onBlock(opt.value); setOpen(false); }}
+						>
+							{opt.label}
 						</button>
 					))}
 				</div>
