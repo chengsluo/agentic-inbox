@@ -48,6 +48,10 @@ function defineTool(def: {
 	};
 }
 
+// Workers AI model used for the agent chat and auto-drafted replies. Needs
+// function calling. Requires the Workers Paid plan.
+const AGENT_MODEL = "@cf/deepseek-ai/deepseek-v4.1-flash-1017";
+
 /**
  * Default system prompt used when no custom prompt is configured for a mailbox.
  * Users can override this on a per-mailbox basis via the Settings UI.
@@ -283,7 +287,7 @@ export class EmailAgent extends AIChatAgent<any> {
 		const systemPrompt = await getSystemPrompt(env, mailboxId);
 
 		const result = streamText({
-			model: workersai("@cf/moonshotai/kimi-k2.5"),
+			model: workersai(AGENT_MODEL),
 			system: systemPrompt,
 			messages: await convertToModelMessages(this.messages),
 			tools,
@@ -465,7 +469,7 @@ Based on the email content and thread context above, draft a reply using draft_r
 
 		try {
 			const result = await generateText({
-				model: workersai("@cf/moonshotai/kimi-k2.5"),
+				model: workersai(AGENT_MODEL),
 				system: systemPrompt,
 				messages: await convertToModelMessages(messages),
 				tools,

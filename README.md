@@ -78,7 +78,7 @@ Blocking responds with `{ status, entry, deletedCount }`.
 
 - **Frontend:** React 19, React Router v7, Tailwind CSS, Zustand, TipTap, `@cloudflare/kumo`
 - **Backend:** Hono, Cloudflare Workers, Durable Objects (SQLite), R2, Email Routing
-- **AI Agent:** Cloudflare Agents SDK (`AIChatAgent`), AI SDK v6, Workers AI (`@cf/moonshotai/kimi-k2.5`), `react-markdown` + `remark-gfm`
+- **AI Agent:** Cloudflare Agents SDK (`AIChatAgent`), AI SDK v6, Workers AI (`@cf/deepseek-ai/deepseek-v4.1-flash-1017`), `react-markdown` + `remark-gfm`
 - **Auth:** Cloudflare Access JWT validation (required outside local development), with an optional `API_KEY` bearer token for programmatic clients
 
 ## Getting Started
