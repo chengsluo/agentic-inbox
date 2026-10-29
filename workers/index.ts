@@ -25,6 +25,7 @@ import { Folders } from "../shared/folders";
 import type { Env } from "./types";
 import { requireMailbox, type MailboxContext } from "./lib/mailbox";
 import { normalizeEnvelopeSender } from "./lib/envelope";
+import { isAutoDraftEnabled } from "./lib/auto-draft";
 
 type AppContext = Context<MailboxContext>;
 
@@ -117,7 +118,7 @@ app.post("/api/v1/mailboxes", async (c) => {
 	}
 	const key = `mailboxes/${email}.json`;
 	if (await c.env.BUCKET.head(key)) return c.json({ error: "Mailbox already exists" }, 409);
-	const defaultSettings = { fromName: name, forwarding: { enabled: false, email: "" }, signature: { enabled: false, text: "" }, autoReply: { enabled: false, subject: "", message: "" } };
+	const defaultSettings = { fromName: name, forwarding: { enabled: false, email: "" }, signature: { enabled: false, text: "" }, autoReply: { enabled: false, subject: "", message: "" }, autoDraft: { enabled: false } };
 	const finalSettings = { ...defaultSettings, ...settings };
 	await c.env.BUCKET.put(key, JSON.stringify(finalSettings));
 	const stub = c.env.MAILBOX.get(c.env.MAILBOX.idFromName(email));
@@ -425,7 +426,9 @@ async function receiveEmail(event: ForwardableEmailMessage, env: Env, ctx: Execu
 	const allRecipients = Array.from(new Set([envelopeRecipient, ...toRecipients].filter(Boolean)));
 
 	const messageId = crypto.randomUUID();
-	if (!(await env.BUCKET.head(`mailboxes/${mailboxId}.json`))) { console.log(`Ignoring email for ${mailboxId}: mailbox does not exist`); return; }
+	const mailboxSettingsObj = await env.BUCKET.get(`mailboxes/${mailboxId}.json`);
+	if (!mailboxSettingsObj) { console.log(`Ignoring email for ${mailboxId}: mailbox does not exist`); return; }
+	const mailboxSettings = await mailboxSettingsObj.json().catch(() => null);
 
 	const stub = env.MAILBOX.get(env.MAILBOX.idFromName(mailboxId));
 
@@ -477,6 +480,10 @@ async function receiveEmail(event: ForwardableEmailMessage, env: Env, ctx: Execu
 		thread_id: threadId, message_id: originalMessageId, raw_headers: JSON.stringify(parsedEmail.headers),
 		envelope_sender: envelopeSender,
 	}, attachmentData);
+
+	// Auto-drafting is opt-in per mailbox. The agent can still draft on
+	// request from the chat panel or MCP.
+	if (!isAutoDraftEnabled(mailboxSettings)) return;
 
 	// Resolve the agent through getAgentByName rather than ns.get(...): the
 	// Agents/partyserver runtime needs its `setName` handshake before it will
