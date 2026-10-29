@@ -24,6 +24,7 @@ import { handleReplyEmail, handleForwardEmail } from "./routes/reply-forward";
 import { Folders } from "../shared/folders";
 import type { Env } from "./types";
 import { requireMailbox, type MailboxContext } from "./lib/mailbox";
+import { normalizeEnvelopeSender } from "./lib/envelope";
 
 type AppContext = Context<MailboxContext>;
 
@@ -462,6 +463,10 @@ async function receiveEmail(event: ForwardableEmailMessage, env: Env, ctx: Execu
 
 	const originalMessageId = parsedEmail.messageId ? extractMsgId(parsedEmail.messageId) : null;
 
+	// Persist the SMTP envelope sender separately from the From: header so
+	// consumers can compare the two. Taken only from event.from, never MIME.
+	const envelopeSender = normalizeEnvelopeSender(event.from);
+
 	await stub.createEmail(Folders.INBOX, {
 		id: messageId, subject: parsedEmail.subject || "",
 		sender: (parsedEmail.from?.address || "").toLowerCase(), recipient: allRecipients.join(", "),
@@ -470,6 +475,7 @@ async function receiveEmail(event: ForwardableEmailMessage, env: Env, ctx: Execu
 		body: parsedEmail.html || parsedEmail.text || "",
 		in_reply_to: inReplyTo, email_references: emailReferences.length > 0 ? JSON.stringify(emailReferences) : null,
 		thread_id: threadId, message_id: originalMessageId, raw_headers: JSON.stringify(parsedEmail.headers),
+		envelope_sender: envelopeSender,
 	}, attachmentData);
 
 	// Resolve the agent through getAgentByName rather than ns.get(...): the

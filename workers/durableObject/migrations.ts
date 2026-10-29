@@ -179,4 +179,9 @@ export const mailboxMigrations: Migration[] = [
             );
         `,
 	},
+	{
+		// SMTP envelope sender (event.from). Existing rows stay NULL; no backfill.
+		name: "10_add_envelope_sender",
+		sql: txn(`ALTER TABLE emails ADD COLUMN envelope_sender TEXT;`),
+	},
 ];

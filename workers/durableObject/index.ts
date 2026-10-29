@@ -89,6 +89,8 @@ interface EmailData {
 	thread_id?: string | null;
 	message_id?: string | null;
 	raw_headers?: string | null;
+	/** SMTP envelope sender (MAIL FROM) for inbound mail; null for sent/drafts and legacy rows. Consistency signal only, not authentication. */
+	envelope_sender?: string | null;
 }
 
 interface AttachmentData {
@@ -939,6 +941,7 @@ export class MailboxDO extends DurableObject<Env> {
 				thread_id: email.thread_id ?? null,
 				message_id: email.message_id ?? null,
 				raw_headers: email.raw_headers ?? null,
+				envelope_sender: email.envelope_sender ?? null,
 			})
 			.run();
 

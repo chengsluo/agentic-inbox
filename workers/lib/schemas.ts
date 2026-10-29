@@ -35,6 +35,8 @@ export interface EmailFull extends EmailMetadata {
 	body?: string | null;
 	message_id?: string | null;
 	raw_headers?: string | null;
+	/** SMTP envelope sender (MAIL FROM); null for sent/drafts and pre-migration mail. Not an authentication result. */
+	envelope_sender?: string | null;
 	attachments?: AttachmentInfo[];
 }
 
